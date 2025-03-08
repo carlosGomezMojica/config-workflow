@@ -1,95 +1,181 @@
 #!/bin/bash
 
-# Actualizar paquetes y actualizar el sistema
-sudo apt update && sudo apt upgrade -y
+# Detectar la distribución
+if grep -q 'Pop!_OS' /etc/os-release; then
+    DISTRO='popos'
+elif grep -q 'Arch Linux' /etc/os-release; then
+    DISTRO='arch'
+else
+    echo "Distribución no soportada."
+    exit 1
+fi
 
-# Instalar dependencias necesarias
-sudo apt install -y curl git wget fzf build-essential
+# Función para instalar paquetes en Pop!_OS
+install_popos() {
+    sudo apt update
+    sudo apt install -y "$@"
+}
 
-# Instalar tmux
-sudo apt install -y tmux
+# Función para instalar paquetes en Arch Linux
+install_arch() {
+    sudo pacman -Syu --noconfirm "$@"
+}
 
-# Instalar zsh y configurarlo como shell predeterminado
-sudo apt install -y zsh
-chsh -s $(which zsh)
+# 1. Instalar Neovim y configurar
+install_nvim() {
+    if [ "$DISTRO" = 'popos' ]; then
+        install_popos neovim
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch neovim
+    fi
+    git clone https://github.com/carlosGomezMojica/starter ~/.config/nvim
+}
 
-# Instalar Oh My Zsh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+# 2. Instalar Zsh
+install_zsh() {
+    if [ "$DISTRO" = 'popos' ]; then
+        install_popos zsh
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch zsh
+    fi
+}
 
-# Instalar plugins de Oh My Zsh
-ZSH_CUSTOM=${ZSH_CUSTOM:-~/.oh-my-zsh/custom}
-git clone https://github.com/zsh-users/zsh-syntax-highlighting.git $ZSH_CUSTOM/plugins/zsh-syntax-highlighting
-git clone https://github.com/zsh-users/zsh-autosuggestions.git $ZSH_CUSTOM/plugins/zsh-autosuggestions
+# 3. Instalar Oh-My-Zsh y configurar
+install_oh_my_zsh() {
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+    sed -i 's/^ZSH_THEME=.*/ZSH_THEME="passion"/' ~/.zshrc
 
-# Instalar powerlevel10k (tema para zsh)
-git clone --depth=1 https://github.com/romkatv/powerlevel10k.git $ZSH_CUSTOM/themes/powerlevel10k
+    ZSH_CUSTOM=${ZSH_CUSTOM:-~/.oh-my-zsh/custom}
 
-# Configurar .zshrc para usar los plugins y el tema
-sed -i 's/^ZSH_THEME=.*/ZSH_THEME="powerlevel10k\/powerlevel10k"/' ~/.zshrc
-sed -i 's/^plugins=(.*/plugins=(git zsh-syntax-highlighting zsh-autosuggestions)/' ~/.zshrc
+    # Instalar plugins
+    git clone https://github.com/zsh-users/zsh-syntax-highlighting.git $ZSH_CUSTOM/plugins/zsh-syntax-highlighting
+    git clone https://github.com/zsh-users/zsh-autosuggestions.git $ZSH_CUSTOM/plugins/zsh-autosuggestions
+    git clone https://github.com/zsh-users/zsh-history-substring-search.git $ZSH_CUSTOM/plugins/zsh-history-substring-search
+    git clone https://github.com/MichaelAquilina/zsh-you-should-use.git $ZSH_CUSTOM/plugins/you-should-use
 
-# Aplicar cambios de .zshrc
-source ~/.zshrc
+    # Añadir plugins al .zshrc
+    sed -i 's/^plugins=(\(.*\))/plugins=(\1 zsh-syntax-highlighting zsh-autosuggestions zsh-history-substring-search you-should-use)/' ~/.zshrc
 
-# Instalar Neovim
-sudo add-apt-repository ppa:neovim-ppa/stable -y
-sudo apt update
-sudo apt install -y neovim
+    # Configurar fzf-tab
+    git clone https://github.com/Aloxaf/fzf-tab $ZSH_CUSTOM/plugins/fzf-tab
+    echo "source $ZSH_CUSTOM/plugins/fzf-tab/fzf-tab.plugin.zsh" >> ~/.zshrc
 
-# Instalar AWS CLI
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
-rm -rf awscliv2.zip aws/
+    # Aplicar cambios
+    source ~/.zshrc
+}
 
-# Instalar nvm (Node Version Manager)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
-source ~/.zshrc
+# 4. Instalar Docker
+install_docker() {
+    if [ "$DISTRO" = 'popos' ]; then
+        install_popos docker.io
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch docker
+    fi
+    sudo systemctl enable --now docker
+    sudo usermod -aG docker $USER
+}
 
-# Instalar la última versión de Node.js y npm
-nvm install node
+# 5. Instalar LazyDocker
+install_lazydocker() {
+    if [ "$DISTRO" = 'popos' ]; then
+        sudo apt install -y golang-go
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch go
+    fi
+    go install github.com/jesseduffield/lazydocker@latest
+    sudo mv ~/go/bin/lazydocker /usr/local/bin/
+}
 
-# Instalar pnpm
-curl -fsSL https://get.pnpm.io/install.sh | sh -
+# 6. Instalar LazyGit
+install_lazygit() {
+    if [ "$DISTRO" = 'popos' ]; then
+        sudo add-apt-repository ppa:lazygit-team/release
+        sudo apt update
+        sudo apt install -y lazygit
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch lazygit
+    fi
+}
 
-# Añadir pnpm al PATH y cargar nvm en .zshrc
-echo 'export PNPM_HOME="$HOME/.local/share/pnpm"' >>~/.zshrc
-echo 'export PATH="$PNPM_HOME:$PATH"' >>~/.zshrc
-echo 'export NVM_DIR="$HOME/.nvm"' >>~/.zshrc
-echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >>~/.zshrc
-source ~/.zshrc
+# 7. Instalar Zoxide
+install_zoxide() {
+    if [ "$DISTRO" = 'popos' ]; then
+        curl -sS https://webinstall.dev/zoxide | bash
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch zoxide
+    fi
+}
 
-# Instalar Docker
-sudo apt install -y \
-  ca-certificates \
-  curl \
-  gnupg \
-  lsb-release
+# 8. Instalar tldr
+install_tldr() {
+    if [ "$DISTRO" = 'popos' ]; then
+        sudo npm install -g tldr
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch tldr
+    fi
+}
 
-# Añadir la clave GPG oficial de Docker
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+# 9. Instalar AWS CLI
+install_aws_cli() {
+    if [ "$DISTRO" = 'popos' ]; then
+        sudo apt install -y awscli
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch aws-cli
+    fi
+}
 
-# Configurar el repositorio estable de Docker
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+# 10. Instalar NVM
+install_nvm() {
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+}
 
-# Instalar Docker Engine, containerd y Docker Compose
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+# 11. Instalar PNPM
+install_pnpm() {
+    curl -fsSL https://get.pnpm.io/install.sh | sh -
+}
 
-# Añadir el usuario actual al grupo docker
-sudo usermod -aG docker $USER
+# 12. Instalar Zathura y configurar
+install_zathura() {
+    if [ "$DISTRO" = 'popos' ]; then
+        install_popos zathura
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch zathura
+    fi
 
-# Instalar zathura
-sudo apt install -y zathura
+    CONFIG_DIR="$HOME/.config/zathura"
+    CONFIG_FILE="$CONFIG_DIR/zathurarc"
 
-# Instalar zoxide
-curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+    mkdir -p "$CONFIG_DIR"
 
-# Instalar tldr
-sudo npm install -g tldr
+    cat > "$CONFIG_FILE" << EOL
+set default-bg       "#002b36"
+set default-fg       "#839496"
+set statusbar-bg     "#073642"
+set statusbar-fg     "#93a1a1"
+set notification-bg  "#073642"
+set notification-fg  "#93a1a1"
+set inputbar-bg      "#073642"
+set inputbar-fg      "#93a1a1"
+EOL
+}
 
-# Recordatorio para reiniciar la sesión
-echo "Instalación completada. Por favor, cierra y vuelve a abrir tu terminal o ejecuta 'exec zsh' para aplicar los cambios."
+# 13. Instalar Kitty y configurar
+install_kitty() {
+    if [ "$DISTRO" = 'popos' ]; then
+        install_popos kitty
+    elif [ "$DISTRO" = 'arch' ]; then
+        install_arch kitty
+    fi
+    git clone https://github.com/carlosGomezMojica/kitty-solarized-osaka ~/.config/kitty
+}
+
+# Ejecutar funciones
+install_nvim
+install_zsh
+install_oh_my_zsh
+install_docker
+install_l
+::contentReference[oaicite:0]{index=0}
+ 
